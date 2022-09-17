@@ -1,13 +1,14 @@
+use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, InsertResult,
-    ModelTrait, PrimaryKeyTrait,
+    IntoActiveModel, ModelTrait, PrimaryKeyTrait,
 };
 
 #[async_trait]
 pub trait BaseCRUD<Entity, Model, ActiveModel>
 where
     Entity: EntityTrait<Model = Model>,
-    Model: ModelTrait + FromQueryResult,
+    Model: ModelTrait + FromQueryResult + IntoActiveModel<ActiveModel>,
     ActiveModel: ActiveModelTrait<Entity = Entity> + Send,
 {
     async fn get_by_id(
@@ -27,15 +28,47 @@ where
         Entity::insert(active_model).exec(db).await
     }
 
-    // async fn create_with_returning<'a>(
-    //     db: &DatabaseConnection,
-    //     active_model: ActiveModel
-    // ) -> Result<InsertResult<ActiveModel>, DbErr>
+    async fn create_with_returning<'a>(
+        db: &impl ConnectionTrait,
+        active_model: ActiveModel,
+    ) -> Result<<ActiveModel::Entity as EntityTrait>::Model, DbErr>
+    where
+        ActiveModel: 'a,
+    {
+        Entity::insert(active_model).exec_with_returning(db).await
+    }
+
+    async fn create_unique<'a>(
+        db: &impl ConnectionTrait,
+        active_model: ActiveModel,
+    ) -> Result<InsertResult<ActiveModel>, DbErr>
+    where
+        ActiveModel: 'a,
+    {
+        Entity::insert(active_model)
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec(db)
+            .await
+    }
+
+    async fn create_unique_with_returning<'a>(
+        db: &impl ConnectionTrait,
+        active_model: ActiveModel,
+    ) -> Result<<ActiveModel::Entity as EntityTrait>::Model, DbErr>
+    where
+        ActiveModel: 'a,
+    {
+        Entity::insert(active_model)
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_with_returning(db)
+            .await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::base_crud::BaseCRUD;
+    use sea_orm::ActiveValue::Set;
     use sea_orm::{DatabaseBackend, MockDatabase};
 
     mod entities {
@@ -68,12 +101,21 @@ mod tests {
         struct CatCrud {}
         impl BaseCRUD<Cat, entities::Model, entities::ActiveModel> for CatCrud {}
 
-        let db = MockDatabase::new(DatabaseBackend::Postgres).append_query_results(vec![vec![
-            entities::Model {
+        let db = MockDatabase::new(DatabaseBackend::Postgres)
+            .append_query_results(vec![vec![entities::Model {
                 id: 1,
                 name: "Boris".into(),
-            },
-        ]])
+            }]])
+            .append_query_results(vec![
+                vec![entities::Model {
+                    id: 2,
+                    name: "Murzik".into(),
+                }],
+                vec![entities::Model {
+                    id: 3,
+                    name: "Murka".into(),
+                }],
+            ])
             .into_connection();
 
         assert_eq!(
@@ -82,6 +124,36 @@ mod tests {
                 id: 1,
                 name: "Boris".into()
             })
+        );
+
+        assert_eq!(
+            CatCrud::create(
+                &db,
+                entities::ActiveModel {
+                    name: Set("Murzik".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .last_insert_id,
+            2
+        );
+
+        assert_eq!(
+            CatCrud::create_with_returning(
+                &db,
+                entities::ActiveModel {
+                    name: Set("Murka".into()),
+                    ..Default::default()
+                }
+            )
+            .await
+            .unwrap(),
+            entities::Model {
+                id: 3,
+                name: "Murka".to_string()
+            }
         )
     }
 }
