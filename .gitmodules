@@ -1,3 +1,7 @@
 [submodule "beijing"]
 	path = beijing
 	url = git@github.com:Cominder-rs/beijing.git
+
+[submodule "moscow"]
+    path = moscow
+    url = git@github.com:Cominder-rs/moscow.git
