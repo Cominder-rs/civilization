@@ -1,14 +1,11 @@
-
-use proc_macro::{TokenStream};
-use quote::{quote, ToTokens};
-use syn::{Block, Expr, ExprMatch, FnArg, parse_macro_input, parse_quote, Pat, PatIdent, Stmt};
+use proc_macro::TokenStream;
+use quote::{self, ToTokens};
+// use syn::parse_quote::ParseQuote;
 use syn::ItemFn;
-use syn::parse_quote::ParseQuote;
-
+use syn::{parse_macro_input, parse_quote, Expr, ExprMatch, FnArg, Pat, PatIdent, Stmt};
 
 #[proc_macro_attribute]
 pub fn scopes(_attr: TokenStream, input: TokenStream) -> TokenStream {
-
     let mut input = parse_macro_input!(input as ItemFn);
 
     println!("{:#?}", input.to_token_stream().to_string());
@@ -22,16 +19,14 @@ pub fn scopes(_attr: TokenStream, input: TokenStream) -> TokenStream {
     for arg in inputs {
         match arg {
             FnArg::Receiver(_) => continue,
-            FnArg::Typed(arg) => {
-                match &*arg.pat {
-                    Pat::Ident(PatIdent{ident, ..}) => {
-                        if ident.to_string().as_str() == "request" {
-                            request = Some(ident)
-                        }
-                    },
-                    _ => continue
+            FnArg::Typed(arg) => match &*arg.pat {
+                Pat::Ident(PatIdent { ident, .. }) => {
+                    if ident.to_string().as_str() == "request" {
+                        request = Some(ident)
+                    }
                 }
-            }
+                _ => continue,
+            },
         }
     }
 
@@ -47,7 +42,6 @@ pub fn scopes(_attr: TokenStream, input: TokenStream) -> TokenStream {
             _ => return Err(Status::unauthenticated("No valid auth token"))
         }
     };
-
 
     let to_extend = &mut input.block.stmts;
     to_extend.insert(1, Stmt::Expr(Expr::Match(auth_check)));
